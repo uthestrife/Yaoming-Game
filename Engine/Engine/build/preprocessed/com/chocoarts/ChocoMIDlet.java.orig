@@ -1,0 +1,20 @@
+/*
+ * 
+ */
+package com.chocoarts;
+
+import javax.microedition.midlet.*;
+
+/**
+ * Class ChocoMIDlet are created for MIDLet template which enable us
+ * to create Engine object later in the project
+ * @author lieenghao
+ */
+abstract public class ChocoMIDlet extends MIDlet {
+    abstract public void startApp();
+    
+    abstract public void pauseApp();
+    
+    abstract public void destroyApp(boolean unconditional);
+    
+}

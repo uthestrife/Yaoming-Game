@@ -1,0 +1,790 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package com.chocoarts;
+
+import com.chocoarts.debug.Debug;
+import com.chocoarts.dynamic.Attributes;
+import com.chocoarts.dynamic.AttributesTable;
+import com.chocoarts.network.Profile;
+import com.chocoarts.network.Statistics;
+import com.chocoarts.scene.Scene;
+import com.chocoarts.text.NumpadInput;
+import com.chocoarts.text.QwertyInput;
+import com.chocoarts.text.UserInput;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import javax.microedition.lcdui.Canvas;
+import javax.microedition.lcdui.Graphics;
+import javax.microedition.lcdui.Image;
+import javax.microedition.lcdui.game.GameCanvas;
+import javax.microedition.lcdui.game.Sprite;
+import javax.microedition.media.Manager;
+import javax.microedition.media.MediaException;
+import javax.microedition.media.Player;
+import javax.microedition.media.control.VolumeControl;
+
+/**
+ * Engine Class, the core of everything in this Engine package
+ * @author lieenghao
+ */
+public class Engine extends GameCanvas implements Runnable{
+    // SOUND OPTION
+    public static final int SOUND_ON = 0, SOUND_OFF = 1;
+    public int sound = SOUND_ON;
+    
+    // Nilai Frame per Seconds dari game yang berjalan
+    public final static int FRAME_PER_SECOND = 30;
+    public final static int MILLISECONDS_PER_FRAME = 1000/FRAME_PER_SECOND;
+    
+    // boolean penentu apakah aplikasi akan ditutup atau tidak
+    private boolean closeApp = false;
+    
+    //public static final boolean DEBUG = true;
+    public static int SCREEN_CANCEL_BUTTON =-7;
+    // Thread utama tempat main loop (update dan paint) dari game berjalan
+    private Thread mainThread;
+    // Thread untuk me-load sebuah scene baru
+    private Thread loadingThread;
+    
+    private Graphics g;
+    private ChocoMIDlet mainMidlet;
+    private boolean hasInitApp = false;
+    
+    private Scene currentScene;
+    private Scene nextScene;
+    private Scene loadingScene;
+    
+    // Variable tambahan untuk dibagi-bagi referencenya
+    protected Profile profile;
+    protected Statistics statistics;
+    protected AttributesTable attribTable;
+    
+    // Music Section
+    Player musicPlayer;
+    Hashtable musicHash, sfxHash, sfxInstance;
+    
+    private boolean finishLoad;
+    private boolean forceLoading;
+    public final boolean touchSupported;
+    public boolean isPotrait;
+    public boolean isQwertyInput;
+    private boolean isDynamicAttributes;
+    int lastVolume = -1;
+    
+    public Engine(ChocoMIDlet mainMidlet, boolean isDebug, boolean isDynamicAttributes){
+        super(false);// suppressKey = false
+        statistics = new Statistics();
+        
+        musicHash = new Hashtable();
+        sfxHash = new Hashtable();
+        sfxInstance = new Hashtable();
+        
+        this.mainMidlet = mainMidlet;
+        this.touchSupported = hasPointerEvents();
+        this.isQwertyInput = isQwertyDevice();
+        
+        if(isDebug){
+            Debug.DEBUGGING = true;
+            Debug.initDebug();
+            System.getProperty("com.nokia.targetdebug");
+        }
+        
+        this.isDynamicAttributes = isDynamicAttributes;
+        if(isDynamicAttributes){
+            attribTable = new AttributesTable();
+            attribTable.collectAttributes();
+        }
+        
+        setFullScreenMode(true);
+        Debug.printFree("Engine");
+    }
+    
+    public void setFirstScene(Scene firstScene){
+        this.nextScene = firstScene;
+    }
+    
+    /**
+     * Memasangkan loading scene, yang akan dijalankan setiap kali perpindahan 
+     * scene. Perpindahan scene tidak termasuk pada waktu aplikasi pertama kali 
+     * dijalankan, yaitu pada saat scene pertama di-load, namun setiap 
+     * perpindahan scene setelah itu. Jangan lupa panggil initLoadingScene kapan
+     * saja sebelum loading mau muncul
+     * @param scene 
+     */
+    public void setLoadingScene(Scene scene){
+        this.loadingScene = scene;
+    }
+    
+    public void initLoadingScene() {
+        try{
+            loadingScene.init();
+        }catch(Exception ex){
+            ex.printStackTrace();
+        }
+    }
+    
+    /**
+     * Game main loop
+     */
+    public void run() {
+        long startTime;
+        
+        // hideNotify() membuat mainThread = null
+        // sehingga loop akan berhenti
+        // Jika mau mematikan aplikasi
+        // boolean closeApp akan dibuat true oleh Scene yang bersangkutan.
+        while(Thread.currentThread()==mainThread && !closeApp){  
+            startTime = System.currentTimeMillis();
+            
+            // Update logic current scene
+            update(startTime);
+            
+            // Draw current scene
+            paint();
+            
+            // Flush dari buffer ke layar
+            flushGraphics();
+            
+            // Sleep sesuai fps
+            fpsControl(startTime);
+            
+            if(currentScene!=null && currentScene.isWannaCloseApp()){
+                closeApp = true;
+            }
+        }
+        // Program keluar dari while loop ini tidak selalu karena boolean closeApp
+        // Tapi juga dapat dikarenakan Aplikasi menuju kondisi sleep.
+        // Jika mau mematikan aplikasi, boolean closeApp akan dibuat true oleh 
+        // Scene yang bersangkutan
+        if(closeApp){
+            mainMidlet.destroyApp(true);
+            destroyApp();
+        }
+    }
+    
+    /**
+     * Dipanggil saat perubahan resolusi, program dipanggil ulang, dll
+     */ 
+    protected void showNotify(){
+        if(!hasInitApp){
+            try{
+                initApps();    // Menginisialisasi app
+            }catch (Exception ex){
+                ex.printStackTrace();
+                return;
+            }
+            hasInitApp = true;
+            
+            g = getGraphics();
+            this.isPotrait = g.getClipHeight()>g.getClipWidth();
+            if(isPotrait){
+                landscapeImage = Image.createImage(g.getClipHeight(), g.getClipWidth());
+            }
+        }
+        
+        mute(false);
+        
+        // Berikutnya, penggambaran akan diurus run()
+        mainThread = new Thread(this);
+        mainThread.start();
+    }
+
+    // Dipanggil saat layar sleep
+    protected void hideNotify() {
+        if(currentScene!=null){
+            Debug.println("Sleep Called");
+            currentScene.sleep();
+        }
+        
+        mute(true);
+        
+        // mainThread is set null implies main loop, at run function, exit
+        mainThread = null;
+    }
+
+    /**
+     * Called when device change orientation occured from landscape to potrait
+     * vice versa
+     * @param w
+     * @param h 
+     */
+    protected void sizeChanged(int w, int h) {
+        super.sizeChanged(w, h);
+        
+        if(g!=null){
+            this.isPotrait = g.getClipHeight()>g.getClipWidth();
+            if(isPotrait){
+                landscapeImage = Image.createImage(g.getClipHeight(), g.getClipWidth());
+            }
+        }
+    }
+    
+    
+    /**
+     * Menginisialisasi dengan asumsi setFirstScene sudah pernah dipanggil
+     * @throws Exception 
+     */
+    protected void initApps() throws Exception{
+        if(nextScene==null){
+            Debug.println("Anda harus memanggil setFirstScene pada constructor turunan Engine anda");
+            return;
+        }
+        // Tidak menggunakan loadNextScene karena kita mau inisialisasi yang
+        // synchronize, alias program menunggu sampai inisialisasi selesai baru
+        // jalan lagi.
+        nextScene.init();
+        currentScene = nextScene;
+
+        resetScene();
+    }
+    
+    /**
+     * Fungsi yang menjamin Frame per Second (FRAME_PER_SECOND)
+     * dengan memberikan delay yang sesuai dengan lama waktu untuk update & paint
+     * @param startTime 
+     */
+    private void fpsControl(long startTime) {
+        try {
+            long deltaTime = System.currentTimeMillis() - startTime;
+            if(deltaTime>=MILLISECONDS_PER_FRAME){
+                // Sudah bekerja lama, tidak perlu sleep lagi
+            } else {
+                // Perlu tidur sebentar
+                Thread.sleep(MILLISECONDS_PER_FRAME-deltaTime);
+            }
+        } catch (InterruptedException ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    /**
+     * Update logic scene yang aktif
+     * @param currentTime == System.currentTimeMillis()
+     */
+    private void update(long currentTime) {
+        if(!forceLoading && currentScene!=null){
+            currentScene.update(currentTime);
+            if(currentScene.isWannaChangeScene()){
+                loadNextScene();
+                currentScene = null;
+                if(loadingScene!=null){
+                    loadingScene.reset();
+                }
+            }
+        }
+        //Update terus, biar timernya nggak ketinggalan update
+        if(loadingScene!=null){
+            loadingScene.update(currentTime);
+        }
+        if(finishLoad && nextScene!=null){
+            toNextScene();
+        }
+    }
+    
+    public void setNextScene(Scene scene){
+        nextScene = scene;
+    }
+    
+    /**
+     * Menginisialisasi nextScene
+     */
+    private void loadNextScene(){
+        loadScene(nextScene);
+    }
+    
+    /**
+     * Pindah dari currentScene ke nextScene dengan asumsi loadNextScene telah 
+     * dipanggil dan selesai alias nextScene telah diinisialisasi
+     */
+    private void toNextScene(){
+        currentScene = nextScene;
+        loadingThread = null;
+        nextScene = null;
+        finishLoad = false;
+        System.gc();
+    }
+    
+    Graphics backupG;
+    Image landscapeImage, portraitImage;
+    private void paint() {
+        if(isPotrait){
+            backupG = g;
+            g = landscapeImage.getGraphics();
+        }
+        
+        if(!forceLoading && currentScene!=null){
+            g.setColor( 0,  0, 0 );
+            if(isPotrait){
+                g.fillRect( 0, 0, getHeight(), getWidth() );
+            } else {
+                g.fillRect( 0, 0, getWidth(), getHeight() );
+            }
+            currentScene.paint(g);
+        } else if(loadingScene!=null){
+            g.setColor( 0,  0, 0 );
+            if(isPotrait){
+                g.fillRect( 0, 0, getHeight(), getWidth() );
+            } else {
+                g.fillRect( 0, 0, getWidth(), getHeight() );
+            }
+            loadingScene.paint(g);
+        }
+//        if(Debug.DEBUGGING){
+//            Debug.drawDebugString(g);
+//        }
+        
+        if(isPotrait){
+            portraitImage = Image.createImage(landscapeImage, 0, 0
+                    , landscapeImage.getWidth(), landscapeImage.getHeight(),Sprite.TRANS_ROT90 );
+            backupG.drawImage(portraitImage, 0, 0, Graphics.LEFT|Graphics.TOP);
+            g = backupG;
+        }
+        // Perhatikan bahwa baris program:
+        // g.setColor( 0,  0, 0 );
+        // g.fillRect( 0, 0, getWidth(), getHeight() );
+        // berada di dalam scope IF, hal ini dikarenakan jika currentScene bernilai
+        // null dan loadingScene bernilai null hasil yang kita harapkan adalah
+        // gambar terakhir yang ada pada layar (dengan cara tidak menggambar 
+        // apapun lagi pada Graphics. Hasil yang tidak kita harapkan adalah
+        // layar gelap.
+    }
+    
+    /**
+     * Used for the printscreen scheme
+     * @param localG 
+     */
+    private void paintIgnoreOrientation(Graphics localG){
+        if(!forceLoading && currentScene!=null){
+            localG.setColor( 0,  0, 0 );
+            if(isPotrait){
+                localG.fillRect( 0, 0, getHeight(), getWidth() );
+            } else {
+                localG.fillRect( 0, 0, getWidth(), getHeight() );
+            }
+            currentScene.paint(localG);
+        } else if(loadingScene!=null){
+            localG.setColor( 0,  0, 0 );
+            if(isPotrait){
+                localG.fillRect( 0, 0, getHeight(), getWidth() );
+            } else {
+                localG.fillRect( 0, 0, getWidth(), getHeight() );
+            }
+            loadingScene.paint(localG);
+        }
+    }
+    
+    /**
+     * input from user must be synchronized to prevent inconsistency
+     * @param rawKeyCode 
+     */
+    protected synchronized void keyPressed(int rawKeyCode) {
+        try{
+            int keyCode = getGameAction(rawKeyCode);
+            
+            if(this.isPotrait){
+                if(keyCode==Canvas.UP){
+                    keyCode = Canvas.LEFT;
+                } else if(keyCode==Canvas.DOWN){
+                    keyCode = Canvas.RIGHT;
+                } else if(keyCode==Canvas.LEFT){
+                    keyCode = Canvas.DOWN;
+                } else if(keyCode==Canvas.RIGHT){
+                    keyCode = Canvas.UP;
+                }
+            }
+            
+            // Jika nggak ada Game Action-nya
+            // Arahannya pake angka
+            if(keyCode==0){
+                // Jika Landscape
+                if(!this.isPotrait){
+                    switch(rawKeyCode){
+                        case '2':
+                            keyCode = Canvas.UP;
+                            break;
+                        case '4':
+                            keyCode = Canvas.LEFT;
+                            break;
+                        case '6':
+                            keyCode = Canvas.RIGHT;
+                            break;
+                        case '8':
+                            keyCode = Canvas.DOWN;
+                            break;
+                        case '5':
+                            keyCode = Canvas.FIRE;
+                            break;
+                    }
+                } else {
+                    switch(rawKeyCode){
+                        case '2':
+                            keyCode = Canvas.LEFT;
+                            break;
+                        case '4':
+                            keyCode = Canvas.DOWN;
+                            break;
+                        case '6':
+                            keyCode = Canvas.UP;
+                            break;
+                        case '8':
+                            keyCode = Canvas.RIGHT;
+                            break;
+                        case '5':
+                            keyCode = Canvas.FIRE;
+                            break;
+                    }
+                }
+            }
+//            Debug.println("KeyCode: " + keyCode);
+//            Debug.println("rawKeyCode: " + rawKeyCode);
+            
+            /*
+             * switch(keyCode){
+            case Canvas.UP:
+                System.out.println("UP");
+                break;
+            case Canvas.DOWN:
+                System.out.println("DOWN");
+                break;
+            case Canvas.LEFT:
+                System.out.println("LEFT");
+                break;
+            case Canvas.RIGHT:
+                System.out.println("RIGHT");
+                break;
+            case Canvas.FIRE:
+                System.out.println("FIRE");
+                break;
+        }
+             */
+            if(currentScene!=null){
+                currentScene.keyPressed(keyCode,rawKeyCode);
+            }
+        }catch(Exception a){
+            // Kalo user pencet sembarangnya,
+            // getGameAction-nya throws Error
+        }
+    }
+    
+    protected synchronized void pointerPressed(int x, int y) {
+        if(isPotrait){
+            int temp = x;
+            x = y;
+            y = backupG.getClipWidth() - temp;
+        }
+        try{
+            if(currentScene!=null){
+                currentScene.pointerPressed(x,y);
+            }
+        }catch(Exception a){
+            // Kalo user pencet sembarangnya,
+            // getGameAction-nya throws Error
+        }
+        super.pointerPressed(x, y);
+    }
+    
+    protected void resetScene() {
+        if(currentScene!=null)
+            currentScene.reset();
+    }
+    
+    /**
+     * WARNING, starting a new loadingThread. Use it wisely
+     * 
+    */
+    private void loadScene(final Scene scene){
+        finishLoad = false;
+        loadingThread = new Thread(new Runnable() {
+            public void run() {
+                String str = scene.getClass().getName();
+                int index = str.lastIndexOf('.');
+                String className = str.substring(index+1);
+                try{
+                    System.gc();                
+                    // Menginisialisasi objek Scene
+                    scene.init();
+                    
+                    Debug.printFree(className);
+                    finishLoad = true;
+                }catch(Exception ex){
+                    ex.printStackTrace();
+                    
+                    Debug.println("Gagal inisialisasi " + className);
+                    Debug.setDebugString("Gagal inisialisasi " + className);
+                    // Mematikan aplikasi
+                    closeApp = true;
+                }
+            }
+        });
+        loadingThread.start();
+    }
+
+    private void destroyApp() {
+        Debug.println("Destroying App ...");
+        Debug.setDebugString("Destroying App ...");
+        try {
+            Thread.sleep(3000);
+        } catch (InterruptedException ex1) {
+            ex1.printStackTrace();
+        }
+        try{
+            mainThread = null;
+            mainMidlet.destroyApp(true);
+        }catch(Exception ex){
+            ex.printStackTrace();
+        }
+    }
+    
+    /*****************PROFILE, STATISTIC AND MUSIC REGION**********************/
+    public Profile getProfile(){
+        return profile;
+    }
+    
+    public Statistics getStatistic() {
+        return statistics;
+    }
+    
+    public boolean initProfile(Profile profileInstance, String appRMSString){
+        profile = profileInstance;
+        profile.initProfile(appRMSString);
+        try{
+            // Mencoba membaca berkas profile
+            profile.readProfile();
+        }catch(Exception ex){
+            Debug.println("Tidak menemukan berkas profile pada sistem");
+            try{
+                Debug.println("Membuat berkas profile yang baru");
+                // Kalau ternyata tidak ada berkas profile
+                // Kita bikin baru
+                profile.writeProfile();
+            }catch(Exception ex2){
+                Debug.println("Tidak dapat membuat berkas profile baru!");
+                return false; // PROFILE FAILED TO START
+            }
+        }
+        return true;
+    }
+    
+    public void initStatistic(String hostname){
+        statistics.init(this,hostname);
+        statistics.startPlaying();
+    }
+
+    public void finishLoading() {
+        forceLoading = false;
+    }
+
+    /**
+     * Memaksakan loading sampai finishLoading dipanggil
+     */
+    public void forceLoading() {
+        forceLoading = true;
+    }
+    
+    /**
+     * Must be midi song
+     * @param musicName
+     * @param filepath 
+     */
+    public void regisMusic(String musicName, String filepath){
+        musicHash.put(musicName, filepath);
+    }
+    
+    /**
+     * Sound effects immediately load to memory
+     * @param sfxName
+     * @param filepath 
+     */
+    public void regisSFX(String sfxName, String filepath){
+        sfxHash.put(sfxName,filepath);
+    }
+    
+    public void clearSfx(){
+        try{
+            Enumeration enumerate = sfxInstance.elements();
+            while(enumerate.hasMoreElements()){
+                try{
+                    Player player = (Player)enumerate.nextElement();
+                    if(player!=null){
+                        player.stop();
+                        player.close();
+                    }
+                }catch(Exception ex){
+                    ex.printStackTrace();
+                }
+            }
+            sfxInstance.clear();
+        }catch(Exception ex){
+            ex.printStackTrace();
+        }
+    }
+    
+    public void initSfx(String sfxName){
+        try{
+            Player player = Manager.createPlayer(getClass().getResourceAsStream(sfxHash.get(sfxName).toString()), "audio/midi");
+            player.setLoopCount(1);
+            sfxInstance.put(sfxName, player);
+        }catch(Exception ex){
+            ex.printStackTrace();
+        }
+    }
+    
+    public void playSfx(String sfxName){
+        if(sound==SOUND_OFF){
+            return;
+        }
+        
+        Player player = (Player)sfxInstance.get(sfxName);
+        try{
+            if(player.getState()==Player.PREFETCHED||player.getState()==Player.STARTED){
+                player.stop();
+                player.setMediaTime(0);
+            }
+            player.start();
+        }catch(Exception ex){
+            ex.printStackTrace();
+        }
+    }
+    
+    public synchronized void playMusic(String musicName){
+        playMusic(musicName, -1);
+    }
+    
+    public synchronized void playMusic(String musicName, int loopCount){
+        if(sound==SOUND_OFF){
+            return;
+        }
+        // Matiin dulu lagu yang lama
+        stopMusic();
+        
+        Debug.println("Play music: " + musicName);
+        
+        try{
+            String filepath = musicHash.get(musicName).toString();
+            musicPlayer = Manager.createPlayer(getClass().getResourceAsStream(filepath), "audio/midi");
+            musicPlayer.setLoopCount(loopCount);
+            musicPlayer.start();
+        }catch(Exception ex){
+            ex.printStackTrace();
+        }
+    }
+    
+    // CHANGE
+    public void stopMusic(){
+        if(musicPlayer!=null){
+            if(musicPlayer.getState() == Player.STARTED) {
+                try {
+                    musicPlayer.stop();
+                } catch (MediaException ex) {
+                }
+            }
+            if(musicPlayer.getState() == Player.PREFETCHED) {
+                musicPlayer.deallocate();
+            }
+            if(musicPlayer.getState() == Player.REALIZED || 
+                musicPlayer.getState() == Player.UNREALIZED) {
+                musicPlayer.close();
+            }
+        }
+        musicPlayer = null;
+    }
+    
+    /**
+     * Membuat duplikat dari tampilan saat ini. Fungsinya hampir sama dengan
+     * print screen yang ada di keyboard anda. Panggil sebelum mengubah logic
+     * atau state.
+     * @return 
+     */
+    public Image printScreen(){
+        Image image = null;
+        if(!isPotrait){
+            image = Image.createImage(getWidth(), getHeight());
+        } else {
+            image = Image.createImage(getHeight(), getWidth());
+        }
+        paintIgnoreOrientation(image.getGraphics());
+        return image;
+    }
+    
+    public Attributes getAttributes(String filename) {
+        if(!isDynamicAttributes){
+            Debug.println("DynamicAttributes was set false, change in Engine's Constructor!");
+            return null;
+        }
+        return attribTable.getAttributes(filename);
+    }
+
+    private void mute(boolean isMute){
+        synchronized(this){
+            if(musicPlayer!=null){
+                VolumeControl control = (VolumeControl) musicPlayer.getControl("VolumeControl");
+                if (control!=null){
+                    control.setMute(isMute);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Volume Range: 100
+     */ 
+    private void setVolume(int volume) {
+        synchronized(this){
+            if(musicPlayer!=null){
+                VolumeControl control = (VolumeControl) musicPlayer.getControl("VolumeControl");
+                if (control!=null){
+                    control.setLevel(volume);
+                }
+            }
+        }
+    }
+    /**
+     * Volume Range: 100
+     * @param volume 
+     */
+    private int getVolume() {
+        synchronized(this){
+            if(musicPlayer!=null){
+                VolumeControl control = (VolumeControl) musicPlayer.getControl("VolumeControl");
+                if (control!=null){
+                    return control.getLevel();
+                }
+            }
+        }
+        return -1;
+    }
+
+    private boolean isQwertyDevice() {
+        String keyboardType = System.getProperty("com.nokia.keyboard.type");
+        
+        // Jika di device nokia
+        if(keyboardType!=null){
+            if(keyboardType.equals("PhoneKeypad")){
+                return false;
+            } else {
+                return true;
+            }
+        } else { // Bukan di device
+            if((getGameAction(48) == 0) && (getGameAction(49) == 0) 
+                    && (getGameAction(50) == 0) && (getGameAction(51) == 0) 
+                    && (getGameAction(52) == 0) && (getGameAction(53) == 0)
+                    && (getGameAction(54) == 0) && (getGameAction(55) == 0)
+                    && (getGameAction(56) == 0) && (getGameAction(57) == 0)){
+                return true;
+            }
+            else{
+                return false;
+            }
+        }
+    }
+
+    public UserInput getInput(int characterSet, int maxLength) {
+        if(isQwertyInput){
+            return new QwertyInput(characterSet, maxLength);
+        } else {
+            return new NumpadInput(characterSet, maxLength);
+        }
+    }
+}

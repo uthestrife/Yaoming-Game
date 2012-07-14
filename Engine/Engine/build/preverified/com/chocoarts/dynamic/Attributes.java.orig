@@ -1,0 +1,86 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package com.chocoarts.dynamic;
+
+import com.chocoarts.debug.Debug;
+
+/**
+ *
+ * @author lieenghao
+ */
+public class Attributes {
+    public final static int FRAME_WIDTH = 0, FRAME_HEIGHT = 1, POSITION_X = 2,
+            POSITION_Y = 3, FPS = 4, IMAGE_TYPE = 5;
+    public final static int ATTRIBUTE_AMOUNT = 6;
+    public static int TYPE_SPRITE = 0, TYPE_ANIMATED = 1;
+    
+    public String filename;
+    
+    int [] objects;
+    
+    public Attributes(){
+        objects = new int[ATTRIBUTE_AMOUNT];
+        objects[FPS] = 1;
+    }
+    
+    public int getAttrib(int attribName){
+        if(attribName<0||attribName>=ATTRIBUTE_AMOUNT){
+            Debug.println("attribName outOfBounds: " + attribName);
+            return -1;
+        }
+        return objects[attribName];
+    }
+    
+    public void setAttrib(int attribName, int value){
+        if(attribName<0||attribName>=ATTRIBUTE_AMOUNT){
+            Debug.println("attribName outOfBounds: " + attribName);
+            return;
+        }
+        objects[attribName] = value;
+    }
+    
+    public int getTimePerFrame(){
+        return 1000/objects[FPS];
+    }
+
+    public void addLine(String piece) {
+//        System.out.println("Pieces:@" + piece + "@");
+        int colonIndeks = piece.indexOf(':');
+        
+        if(colonIndeks==-1){
+            return;
+        }
+        
+        String header = piece.substring(0, colonIndeks);
+        if(header.equals("file-name")){
+            setFilename(piece.substring(colonIndeks+1));
+            return;
+        }
+        // 'piece' length was minus by one because there carriage return character on
+        // the end of the string
+        int value = Integer.parseInt(piece.substring(colonIndeks+1));
+        if(header.equals("frame-width")){
+            setAttrib(Attributes.FRAME_WIDTH, value);
+        } else if(header.equals("frame-height")){
+            setAttrib(Attributes.FRAME_HEIGHT, value);
+        } else if(header.equals("position-x")){
+            setAttrib(Attributes.POSITION_X, value);
+        } else if(header.equals("position-y")){
+            setAttrib(Attributes.POSITION_Y, value);
+        } else if(header.equals("fps")){
+            setAttrib(Attributes.FPS, value);
+        } else if(header.equals("image-type")){
+            setAttrib(Attributes.IMAGE_TYPE, value);
+        }
+    }
+    
+    public void setFilename(String filename){
+        this.filename = filename;
+    }
+    
+    public String getFilename(){
+        return this.filename;
+    }
+}

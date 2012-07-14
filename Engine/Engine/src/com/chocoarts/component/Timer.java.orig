@@ -1,0 +1,93 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package com.chocoarts.component;
+
+/**
+ *
+ * @author lieenghao
+ */
+public class Timer {
+    long lastTime = -1;    // -1 berarti belum dimulai timernya
+    long timeInterval;
+    long deltaTime;
+    boolean isActive;
+    /**
+     * Class untuk menghitung interval waktu (timeInterval)
+     * fungsi isTicked akan return true jika timeInteval sudah dilewati
+     * @param timeInterval 
+     */
+    public Timer(long timeInterval){
+        this.timeInterval = timeInterval;
+        isActive = true;
+    }
+    
+    /**
+     * fungsi isTicked akan return true jika timeInteval sudah dilewati
+     * @param currentTime
+     * @return 
+     */
+    public boolean isTicked(long currentTime){
+        if(isActive){
+            if(lastTime==-1){
+                lastTime = currentTime;
+            } else {
+                deltaTime+=currentTime-lastTime;
+                lastTime = currentTime;
+
+                if(deltaTime>=timeInterval){
+                    deltaTime-=timeInterval;
+                    return true;
+                }
+            }
+            return false;
+        }
+        return false;
+    }
+    
+    /**
+     * Mereset timer
+     */
+    public void reset(){
+        deltaTime = 0;
+        lastTime = -1;
+    }
+    
+    public void setActive(boolean value){
+        isActive = value;
+        reset();
+    }
+
+    public void setTimeInterval(int i) {
+        timeInterval = i;
+        reset();
+    }
+
+    /**
+     * Berbeda dengan fungsi reset, fungsi sleep ini hanya dipanggil
+     * jika screen berada pada kondisi sleep. Yang fungsi sleep lakukan
+     * hanya mengubah nilai lastTime menjadi -1, supaya perhitungannya
+     * dimulai ulang pada saat dibangunkan kembali nanti (tidak sleep lagi)
+     */
+    public void sleep() {
+        lastTime = -1;
+    }
+
+    public void start() {
+        reset();
+        isActive = true;
+    }
+    
+    public void stop(){
+        isActive = false;
+    }
+
+    public boolean isStarted() {
+        return isActive;
+    }
+
+    public long getLastTime() {
+        return lastTime;
+    }
+}
