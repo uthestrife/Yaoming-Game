@@ -15,7 +15,6 @@ import com.chocoarts.text.QwertyInput;
 import com.chocoarts.text.UserInput;
 import java.util.Enumeration;
 import java.util.Hashtable;
-
 import javax.microedition.lcdui.Canvas;
 import javax.microedition.lcdui.Graphics;
 import javax.microedition.lcdui.Image;
@@ -27,7 +26,7 @@ import javax.microedition.media.Player;
 import javax.microedition.media.control.VolumeControl;
 
 /**
- * Engine Class, the core of everything in this Engine package
+ *
  * @author lieenghao
  */
 public class Engine extends GameCanvas implements Runnable{
@@ -76,6 +75,7 @@ public class Engine extends GameCanvas implements Runnable{
     
     public Engine(ChocoMIDlet mainMidlet, boolean isDebug, boolean isDynamicAttributes){
         super(false);// suppressKey = false
+        profile = new Profile();
         statistics = new Statistics();
         
         musicHash = new Hashtable();
@@ -88,7 +88,6 @@ public class Engine extends GameCanvas implements Runnable{
         
         if(isDebug){
             Debug.DEBUGGING = true;
-            Debug.initDebug();
             System.getProperty("com.nokia.targetdebug");
         }
         
@@ -97,8 +96,6 @@ public class Engine extends GameCanvas implements Runnable{
             attribTable = new AttributesTable();
             attribTable.collectAttributes();
         }
-        
-        setFullScreenMode(true);
         Debug.printFree("Engine");
     }
     
@@ -106,6 +103,8 @@ public class Engine extends GameCanvas implements Runnable{
         this.nextScene = firstScene;
     }
     
+    // TODO: yang sekarang loading scene masih memakan memori yang fixed dari
+    // awal game. Bisa gak loading scene di load pas mau perpindahan ajah?
     /**
      * Memasangkan loading scene, yang akan dijalankan setiap kali perpindahan 
      * scene. Perpindahan scene tidak termasuk pada waktu aplikasi pertama kali 
@@ -547,8 +546,7 @@ public class Engine extends GameCanvas implements Runnable{
         return statistics;
     }
     
-    public boolean initProfile(Profile profileInstance, String appRMSString){
-        profile = profileInstance;
+    public boolean initProfile(String appRMSString){
         profile.initProfile(appRMSString);
         try{
             // Mencoba membaca berkas profile
